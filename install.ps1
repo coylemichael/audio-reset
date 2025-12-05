@@ -188,7 +188,7 @@ Write-Host "[4/5] Opening device selection..." -ForegroundColor Yellow
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Elgato Audio Reset - Device Selection"
-$form.Size = New-Object System.Drawing.Size(500, 380)
+$form.Size = New-Object System.Drawing.Size(520, 470)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -197,41 +197,50 @@ $form.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
 $form.ForeColor = [System.Drawing.Color]::White
 
 $font = New-Object System.Drawing.Font("Segoe UI", 9)
+$smallFont = New-Object System.Drawing.Font("Segoe UI", 9)
 $headerFont = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
 
 # Header
 $header = New-Object System.Windows.Forms.Label
-$header.Text = "Select your preferred audio devices:"
+$header.Text = "Select your preferred audio devices"
 $header.Font = $headerFont
 $header.Location = New-Object System.Drawing.Point(20, 15)
-$header.Size = New-Object System.Drawing.Size(450, 25)
+$header.Size = New-Object System.Drawing.Size(470, 25)
 $header.ForeColor = [System.Drawing.Color]::FromArgb(100, 200, 255)
 $form.Controls.Add($header)
 
 $subheader = New-Object System.Windows.Forms.Label
-$subheader.Text = "These will be restored when you run the reset tool."
+$subheader.Text = "These are your current default audio devices. No changes are needed`nif you're happy with your current input/output configuration."
 $subheader.Font = $font
-$subheader.Location = New-Object System.Drawing.Point(20, 40)
-$subheader.Size = New-Object System.Drawing.Size(450, 20)
+$subheader.Location = New-Object System.Drawing.Point(20, 42)
+$subheader.Size = New-Object System.Drawing.Size(470, 40)
 $subheader.ForeColor = [System.Drawing.Color]::Gray
 $form.Controls.Add($subheader)
 
-$yPos = 75
+$yPos = 95
 
-# Helper function to create dropdown
-function Add-DeviceDropdown($labelText, $devices, $defaultValue, $yPosition) {
+# Helper function to create dropdown with description
+function Add-DeviceDropdown($labelText, $description, $devices, $defaultValue, $yPosition) {
     $label = New-Object System.Windows.Forms.Label
     $label.Text = $labelText
     $label.Font = $font
     $label.Location = New-Object System.Drawing.Point(20, $yPosition)
-    $label.Size = New-Object System.Drawing.Size(200, 20)
+    $label.Size = New-Object System.Drawing.Size(470, 20)
     $label.ForeColor = [System.Drawing.Color]::White
     $form.Controls.Add($label)
     
+    $desc = New-Object System.Windows.Forms.Label
+    $desc.Text = $description
+    $desc.Font = $smallFont
+    $desc.Location = New-Object System.Drawing.Point(20, ($yPosition + 18))
+    $desc.Size = New-Object System.Drawing.Size(470, 16)
+    $desc.ForeColor = [System.Drawing.Color]::FromArgb(140, 140, 140)
+    $form.Controls.Add($desc)
+    
     $combo = New-Object System.Windows.Forms.ComboBox
     $combo.Font = $font
-    $combo.Location = New-Object System.Drawing.Point(20, ($yPosition + 22))
-    $combo.Size = New-Object System.Drawing.Size(440, 25)
+    $combo.Location = New-Object System.Drawing.Point(20, ($yPosition + 40))
+    $combo.Size = New-Object System.Drawing.Size(460, 25)
     $combo.DropDownStyle = "DropDownList"
     $combo.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 45)
     $combo.ForeColor = [System.Drawing.Color]::White
@@ -250,19 +259,19 @@ function Add-DeviceDropdown($labelText, $devices, $defaultValue, $yPosition) {
     return $combo
 }
 
-$comboPlaybackDefault = Add-DeviceDropdown "Default Playback Device (games, music, videos):" $playbackDevices $defaultPlayback $yPos
-$yPos += 60
-$comboPlaybackComm = Add-DeviceDropdown "Communications Playback Device (Discord, Teams):" $playbackDevices $defaultPlaybackComm $yPos
-$yPos += 60
-$comboRecordDefault = Add-DeviceDropdown "Default Recording Device:" $recordingDevices $defaultRecording $yPos
-$yPos += 60
-$comboRecordComm = Add-DeviceDropdown "Communications Recording Device:" $recordingDevices $defaultRecordingComm $yPos
+$comboPlaybackDefault = Add-DeviceDropdown "Default Playback Device" "Where your system audio plays (games, music, videos, notifications)" $playbackDevices $defaultPlayback $yPos
+$yPos += 70
+$comboRecordDefault = Add-DeviceDropdown "Default Recording Device" "Default microphone for apps that don't specify one" $recordingDevices $defaultRecording $yPos
+$yPos += 70
+$comboPlaybackComm = Add-DeviceDropdown "Communications Playback Device" "Where you hear voice chat (Discord, Teams, Zoom, etc.)" $playbackDevices $defaultPlaybackComm $yPos
+$yPos += 70
+$comboRecordComm = Add-DeviceDropdown "Communications Recording Device" "Microphone used for voice chat (Discord, Teams, Zoom, etc.)" $recordingDevices $defaultRecordingComm $yPos
 
 # Save button
 $saveButton = New-Object System.Windows.Forms.Button
-$saveButton.Text = "Save && Install"
+$saveButton.Text = "Save"
 $saveButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
-$saveButton.Location = New-Object System.Drawing.Point(150, 300)
+$saveButton.Location = New-Object System.Drawing.Point(160, 382)
 $saveButton.Size = New-Object System.Drawing.Size(180, 35)
 $saveButton.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 212)
 $saveButton.ForeColor = [System.Drawing.Color]::White
