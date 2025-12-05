@@ -340,6 +340,6 @@ Write-Host ""
 Write-Host "For Stream Deck / macro buttons, point to:" -ForegroundColor White
 Write-Host "  $batPath" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "To change devices later, edit:" -ForegroundColor Gray
+Write-Host "To change devices later, delete config.txt and run again:" -ForegroundColor Gray
 Write-Host "  $configPath" -ForegroundColor Gray
 Write-Host ""

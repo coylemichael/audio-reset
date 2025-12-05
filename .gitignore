@@ -1,6 +1,9 @@
 # Build artifacts
 *.obj
-*.exe
+
+# Keep the exe for releases, but ignore local logs and config
+c/logs/
+c/config.txt
 
 # Logs
 *.log
