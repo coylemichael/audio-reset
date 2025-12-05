@@ -4,17 +4,43 @@ Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 
 ## Quick Method
 
-Download & run the installer automatically via PowerShell.
-
 1. Open PowerShell as **Administrator**
-2. Copy and paste the command below:
+2. Run:
 
 ```powershell
 & ([scriptblock]::Create((irm "https://elgato.carnmorcyber.com")))
 ```
 
-3. Wait for the script to download and install
-4. Done! Use `elgato_reset.bat` from your Stream Deck or macro button
+3. A window will pop up showing your audio devices - select your preferred defaults from the dropdowns
+4. Click **Save & Install**
+5. Done! Point your Stream Deck button to:
+
+```
+%LOCALAPPDATA%\ElgatoReset\elgato_reset.bat
+```
+
+The installer auto-detects all your audio devices and pre-selects the current defaults. Just verify they're correct and click install.
+
+---
+
+## Changing Audio Devices
+
+The installer auto-detects your audio settings, but if you need to change them later:
+
+1. Edit `%LOCALAPPDATA%\ElgatoReset\config.txt`
+2. Update the device names to match Windows Sound settings exactly
+
+```ini
+# Example config.txt
+PLAYBACK_DEFAULT=System (Elgato Virtual Audio)
+PLAYBACK_COMM=Voice Chat (Elgato Virtual Audio)
+RECORD_DEFAULT=Microphone (Razer Kraken V4 2.4 - Chat)
+RECORD_COMM=Microphone (Razer Kraken V4 2.4 - Chat)
+```
+
+To find device names: `Windows Key + R` → `mmsys.cpl` → copy the first two lines from each device.
+
+![Playback device example](static/playback.png)
 
 ---
 
@@ -87,46 +113,6 @@ ElgatoReset_05-Dec-2025_12-45-30.log
 ```
 
 </details>
-
----
-
-## Configuration
-
-Edit the constants at the top of `c/elgato_reset.c` (around lines 39-54).
-
-You need **four device names** - two from Playback, two from Recording:
-
-| Role | Tab | Purpose |
-|------|-----|---------|
-| Default Output | Playback | System audio (games, music, videos) |
-| Communications Output | Playback | Voice chat apps (Discord, Teams) |
-| Default Input | Recording | General microphone input |
-| Communications Input | Recording | Voice chat microphone |
-
-This combination covers all input/output for both system and voice chat, ensuring Elgato resets to your preferred defaults.
-
-To find your device names, press `Windows Key + R`, type `mmsys.cpl`, and press Enter.
-Copy the first two lines from each device entry - for example `"System (Elgato Virtual Audio)"`:
-
-![Playback device example](static/playback.png)
-
-Device names must match exactly, in the format `"DeviceName (DriverName)"`:
-- Playback tab: `System (Elgato Virtual Audio)`, `Voice Chat (Elgato Virtual Audio)`
-- Recording tab: `Wave Link MicrophoneFX (Elgato Virtual Audio)`
-
-```c
-/* Default Output Device - Used for general audio (games, music, videos) */
-static const WCHAR* PLAYBACK_DEFAULT = L"System (Elgato Virtual Audio)";
-
-/* Communications Output Device - Used for voice chat apps (Discord, Teams) */
-static const WCHAR* PLAYBACK_COMM = L"Voice Chat (Elgato Virtual Audio)";
-
-/* Default Input Device - Used for general recording */
-static const WCHAR* RECORD_DEFAULT = L"Microphone (Razer Kraken V4 2.4 - Chat)";
-
-/* Communications Input Device - Used for voice chat apps */
-static const WCHAR* RECORD_COMM = L"Microphone (Razer Kraken V4 2.4 - Chat)";
-```
 
 ## License
 

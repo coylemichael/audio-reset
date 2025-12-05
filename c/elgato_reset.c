@@ -30,27 +30,27 @@
 #pragma comment(lib, "user32.lib")
 
 /* ==========================================================================
- * CONFIGURATION - Edit these to match your audio devices
+ * CONFIGURATION - These can be overridden by config.txt in the same folder
  * 
- * Device names must match exactly as shown in Windows Sound settings.
- * Press Windows Key + R, type "mmsys.cpl", and press Enter to open the Sound panel.
+ * If config.txt exists, it will be read. Otherwise these defaults are used.
+ * The installer auto-detects your current audio settings and creates config.txt.
  * ==========================================================================*/
 
 /* Default Output Device - Used for general audio (games, music, videos)
  * This is the "Default Device" in Windows Sound -> Playback tab */
-static const WCHAR* PLAYBACK_DEFAULT = L"System (Elgato Virtual Audio)";
+static WCHAR g_playbackDefault[256] = L"System (Elgato Virtual Audio)";
 
 /* Communications Output Device - Used for voice chat apps (Discord, Teams, etc.)
  * This is the "Default Communication Device" in Windows Sound -> Playback tab */
-static const WCHAR* PLAYBACK_COMM = L"Voice Chat (Elgato Virtual Audio)";
+static WCHAR g_playbackComm[256] = L"Voice Chat (Elgato Virtual Audio)";
 
 /* Default Input Device - Used for general recording
  * This is the "Default Device" in Windows Sound -> Recording tab */
-static const WCHAR* RECORD_DEFAULT = L"Microphone (Razer Kraken V4 2.4 - Chat)";
+static WCHAR g_recordDefault[256] = L"Microphone (Razer Kraken V4 2.4 - Chat)";
 
 /* Communications Input Device - Used for voice chat apps (Discord, Teams, etc.)
  * This is the "Default Communication Device" in Windows Sound -> Recording tab */
-static const WCHAR* RECORD_COMM = L"Microphone (Razer Kraken V4 2.4 - Chat)";
+static WCHAR g_recordComm[256] = L"Microphone (Razer Kraken V4 2.4 - Chat)";
 
 /* Additional devices to unmute and set to 100% volume after reset */
 static const WCHAR* OUTPUT_RAZER_CHAT = L"Speakers (Razer Kraken V4 2.4 - Chat)";
@@ -97,6 +97,57 @@ typedef struct IPolicyConfigVtbl {
     HRESULT (STDMETHODCALLTYPE *SetEndpointVisibility)(IPolicyConfig*, LPCWSTR, int);
 } IPolicyConfigVtbl;
 struct IPolicyConfig { IPolicyConfigVtbl* lpVtbl; };
+
+/* ========== Config File Loading ========== */
+static void loadConfig(const char* exePath) {
+    char configPath[MAX_PATH];
+    char dir[MAX_PATH];
+    
+    strncpy(dir, exePath, MAX_PATH);
+    char* lastSlash = strrchr(dir, '\\');
+    if (lastSlash) *lastSlash = '\0';
+    
+    snprintf(configPath, MAX_PATH, "%s\\config.txt", dir);
+    
+    FILE* f = fopen(configPath, "r");
+    if (!f) {
+        /* No config file, use defaults */
+        return;
+    }
+    
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        /* Remove newline */
+        char* nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+        char* cr = strchr(line, '\r');
+        if (cr) *cr = '\0';
+        
+        /* Skip comments and empty lines */
+        if (line[0] == '#' || line[0] == '\0') continue;
+        
+        /* Parse KEY=VALUE */
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        
+        *eq = '\0';
+        char* key = line;
+        char* value = eq + 1;
+        
+        /* Convert value to wide string and store */
+        if (strcmp(key, "PLAYBACK_DEFAULT") == 0) {
+            MultiByteToWideChar(CP_UTF8, 0, value, -1, g_playbackDefault, 256);
+        } else if (strcmp(key, "PLAYBACK_COMM") == 0) {
+            MultiByteToWideChar(CP_UTF8, 0, value, -1, g_playbackComm, 256);
+        } else if (strcmp(key, "RECORD_DEFAULT") == 0) {
+            MultiByteToWideChar(CP_UTF8, 0, value, -1, g_recordDefault, 256);
+        } else if (strcmp(key, "RECORD_COMM") == 0) {
+            MultiByteToWideChar(CP_UTF8, 0, value, -1, g_recordComm, 256);
+        }
+    }
+    
+    fclose(f);
+}
 
 /* ========== Logging ========== */
 static void logMsg(const char* fmt, ...) {
@@ -583,34 +634,34 @@ static void setAudioDefaults(void) {
     }
     
     /* Set defaults: eRender = 0, eCapture = 1; eConsole = 0, eCommunications = 2 */
-    if (setDefaultDevice(pEnum, pPolicy, PLAYBACK_DEFAULT, eRender, eConsole)) {
-        logMsg("    [+] Playback default: %ls\n", PLAYBACK_DEFAULT);
+    if (setDefaultDevice(pEnum, pPolicy, g_playbackDefault, eRender, eConsole)) {
+        logMsg("    [+] Playback default: %ls\n", g_playbackDefault);
     } else {
-        logMsg("    [!] Playback default not found: %ls\n", PLAYBACK_DEFAULT);
+        logMsg("    [!] Playback default not found: %ls\n", g_playbackDefault);
     }
     
-    if (setDefaultDevice(pEnum, pPolicy, PLAYBACK_COMM, eRender, eCommunications)) {
-        logMsg("    [+] Playback comms: %ls\n", PLAYBACK_COMM);
+    if (setDefaultDevice(pEnum, pPolicy, g_playbackComm, eRender, eCommunications)) {
+        logMsg("    [+] Playback comms: %ls\n", g_playbackComm);
     } else {
-        logMsg("    [!] Playback comms not found: %ls\n", PLAYBACK_COMM);
+        logMsg("    [!] Playback comms not found: %ls\n", g_playbackComm);
     }
     
-    if (setDefaultDevice(pEnum, pPolicy, RECORD_DEFAULT, eCapture, eConsole)) {
-        logMsg("    [+] Recording default: %ls\n", RECORD_DEFAULT);
+    if (setDefaultDevice(pEnum, pPolicy, g_recordDefault, eCapture, eConsole)) {
+        logMsg("    [+] Recording default: %ls\n", g_recordDefault);
     } else {
-        logMsg("    [!] Recording default not found: %ls\n", RECORD_DEFAULT);
+        logMsg("    [!] Recording default not found: %ls\n", g_recordDefault);
     }
     
-    if (setDefaultDevice(pEnum, pPolicy, RECORD_COMM, eCapture, eCommunications)) {
-        logMsg("    [+] Recording comms: %ls\n", RECORD_COMM);
+    if (setDefaultDevice(pEnum, pPolicy, g_recordComm, eCapture, eCommunications)) {
+        logMsg("    [+] Recording comms: %ls\n", g_recordComm);
     } else {
-        logMsg("    [!] Recording comms not found: %ls\n", RECORD_COMM);
+        logMsg("    [!] Recording comms not found: %ls\n", g_recordComm);
     }
     
     /* Unmute and set volume */
     unmuteDevice(pEnum, OUTPUT_RAZER_CHAT, eRender);
     unmuteDevice(pEnum, OUTPUT_RAZER_GAME, eRender);
-    unmuteDevice(pEnum, RECORD_DEFAULT, eCapture);
+    unmuteDevice(pEnum, g_recordDefault, eCapture);
     
     pPolicy->lpVtbl->Release(pPolicy);
     IMMDeviceEnumerator_Release(pEnum);
@@ -657,6 +708,9 @@ int main(int argc, char* argv[]) {
     
     /* Unbuffered output */
     setvbuf(stdout, NULL, _IONBF, 0);
+    
+    /* Load config file (if exists) */
+    loadConfig(exePath);
     
     /* Initialize log */
     initLog(exePath);
