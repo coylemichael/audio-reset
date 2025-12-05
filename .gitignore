@@ -1,0 +1,15 @@
+# Build artifacts
+*.obj
+*.exe
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+*.suo
+*.user
+
+# OS
+Thumbs.db
+.DS_Store
