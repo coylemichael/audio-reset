@@ -1,20 +1,20 @@
 # Elgato Audio Reset Tool
 
-**Version 0.9**
-
 Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 
 ## What It Does
 
-1. Kills WaveLink, WaveLinkSE, and StreamDeck processes
-2. Restarts Windows audio services (audiosrv, AudioEndpointBuilder)  
-3. Relaunches WaveLink and StreamDeck (minimized)
-4. Sets your configured audio device defaults
-5. Optionally shows a completion notification
+- Kills WaveLink, WaveLinkSE, and StreamDeck processes
+- Restarts Windows audio services (audiosrv, AudioEndpointBuilder)  
+- Relaunches WaveLink and StreamDeck (minimized)
+- Sets your configured audio device defaults
+- Optionally shows a completion notification
 
 ## Quick Start
 
 The recommended method - creates a scheduled task with admin privileges so you don't get a UAC prompt every time. The `.bat` file simply triggers the scheduled task, which was configured once during initial setup.
+
+> **Note:** Admin privileges are required because the tool restarts Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and terminates WaveLink/StreamDeck processes.
 
 1. Open PowerShell as **Administrator**
 2. Run:
@@ -33,8 +33,6 @@ The recommended method - creates a scheduled task with admin privileges so you d
 ```
 %LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat
 ```
-
-> **Note:** Admin privileges are required because the tool restarts Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and terminates WaveLink/StreamDeck processes.
 
 ---
 
@@ -75,3 +73,14 @@ On first run, the GUI lets you:
 - Set preferences for background mode and notifications
 
 To change devices later, either uncheck "Run in background" in the GUI, or delete `config.txt` and run again.
+
+## Verification
+
+- ✅ **Attestation** - Releases are built on GitHub Actions with [build provenance](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
+- ✅ **SHA256 hash** - Each release includes a hash for integrity verification
+- ✅ **Open source** - Audit the code or build it yourself
+
+Verify a release:
+```powershell
+gh attestation verify elgato_audio_reset.exe --owner coylemichael
+```

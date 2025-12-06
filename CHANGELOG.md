@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.9] - 2025-12-06
+## [v0.9.1] - 2025-12-06
+
+### Added
+- Automated release builds with GitHub Actions
+- Build attestation for provenance verification
+- SHA256 hash in release notes and changelog
+
+## [v0.9] - 2025-12-06
 
 ### Added
 - Configuration mismatch detection - detects when saved audio config differs from current Windows settings

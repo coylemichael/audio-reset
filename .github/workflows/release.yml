@@ -1,0 +1,82 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+      
+      - name: Build
+        run: |
+          cd c
+          cl /O2 /Fe:elgato_audio_reset.exe elgato_audio_reset.c ole32.lib
+      
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "c/elgato_audio_reset.exe" -Algorithm SHA256).Hash
+          echo "SHA256: $hash" > c/SHA256.txt
+          echo "HASH=$hash" >> $env:GITHUB_ENV
+      
+      - name: Update CHANGELOG with hash
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $hash = "${{ env.HASH }}"
+          $date = Get-Date -Format "yyyy-MM-dd"
+          $changelog = Get-Content "CHANGELOG.md" -Raw
+          
+          # Check if this version already has a hash
+          if ($changelog -notmatch "$tag.*SHA256") {
+            # Add hash after the version header
+            $changelog = $changelog -replace "(\[$tag\] - \d{4}-\d{2}-\d{2})", "`$1`n`nSHA256: ``$hash``"
+            Set-Content "CHANGELOG.md" -Value $changelog -NoNewline
+          }
+      
+      - name: Commit CHANGELOG update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git diff --staged --quiet || git commit -m "Update CHANGELOG with ${{ github.ref_name }} hash"
+          git push origin HEAD:main
+      
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'c/elgato_audio_reset.exe'
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            c/elgato_audio_reset.exe
+            c/SHA256.txt
+          body: |
+            ## Verify Download
+            ```
+            SHA256: ${{ env.HASH }}
+            ```
+            PowerShell: `Get-FileHash elgato_audio_reset.exe -Algorithm SHA256`
+            
+            ## Verify Attestation
+            ```
+            gh attestation verify elgato_audio_reset.exe --owner coylemichael
+            ```
+            ```
