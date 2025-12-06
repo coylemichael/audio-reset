@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [v0.9.3] - 2025-12-06
 
+SHA256: `83BC559CB7E28C9AC1778805066902883017BDC3D5235ECC5F4C82E4630A9699`
+
 ### Changed
 - Improved README documentation
 - Fixed release workflow (removed extra code block)
