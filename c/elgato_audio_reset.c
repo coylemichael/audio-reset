@@ -3,11 +3,11 @@
  * Kills audio processes, restarts audio services, relaunches WaveLink/StreamDeck,
  * and sets audio defaults.
  * 
- * Version: 0.9.1
+ * Version: 0.9.3
  * Compile: cl /O2 elgato_reset.c
  */
 
-#define APP_VERSION L"0.9.1"
+#define APP_VERSION L"0.9.3"
 
 #define INITGUID
 #define COBJMACROS

@@ -14,25 +14,22 @@ Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 
 The recommended method - creates a scheduled task with admin privileges so you don't get a UAC prompt every time. The `.bat` file simply triggers the scheduled task, which was configured once during initial setup.
 
-> **Note:** Admin privileges are required because the tool restarts Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and terminates WaveLink/StreamDeck processes.
-
 1. Open PowerShell as **Administrator**
+
+> **Important:** The scheduled task still requires admin rights because the tool restarts Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and terminates WaveLink/StreamDeck processes.
+
 2. Run:
 
 ```powershell
 & ([scriptblock]::Create((irm "https://elgato.carnmorcyber.com")))
 ```
 
-3. A device selection window will appear - select your preferred audio devices from the dropdowns
+3. Select your preferred audio devices. Optionally set a custom install location (defaults to `%LOCALAPPDATA%\ElgatoReset\`)
 4. Configure options:
-   - **Run in background** - If checked, runs silently without showing the GUI on subsequent runs
-   - **Show completion notification** - If checked, displays "Elgato Audio Reset Complete" when done
-5. Click **Save** to save settings, or **Fix Audio** to save and execute immediately
-6. Done! Point your Stream Deck button to:
-
-```
-%LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat
-```
+   - **Run in background** - Runs silently without showing the GUI on subsequent runs
+   - **Show completion notification** - Displays a popup when complete
+5. Click **Save** or **Fix Audio** to save and execute immediately
+6. Point your macro or hotkey to `%LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat`
 
 ---
 
@@ -44,11 +41,6 @@ This method doesn't require admin during setup, but you'll see a UAC prompt ever
 ### Option A: Download the Release
 
 1. Download `elgato_audio_reset.exe` from the [latest release](https://github.com/coylemichael/audio-reset/releases/latest)
-2. Run it - a configuration window will appear
-3. Click **Browse** to select where you want the tool installed (creates its own folder)
-4. Select your preferred audio devices from the dropdowns
-5. Click **Save & Install**
-6. Point your Stream Deck or macro button to the installed `elgato_audio_reset.exe` (UAC prompt will appear each time)
 
 ### Option B: Clone and Build
 
@@ -56,10 +48,16 @@ This method doesn't require admin during setup, but you'll see a UAC prompt ever
 2. Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
 3. Build:
    ```powershell
-   cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && cd /d "C:\path\to\audio-reset\c" && cl /O2 elgato_reset.c'
+   cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && cd /d "C:\path\to\audio-reset\c" && cl /O2 elgato_audio_reset.c'
    ```
-4. Run `elgato_audio_reset.exe` - select install folder and devices when prompted
-5. Subsequent runs will use the saved config (UAC prompt will appear each time).
+
+### Then (for both options)
+
+1. Run `elgato_audio_reset.exe` - the configuration window will appear
+2. Select your preferred audio devices and optionally set a custom install folder
+3. Configure **Run in background** and **Show notification** options
+4. Click **Save** or **Fix Audio** to save and execute immediately
+5. Point your Stream Deck or hotkey to `elgato_audio_reset.exe` in your install folder (UAC prompt will appear each time)
 
 </details>
 

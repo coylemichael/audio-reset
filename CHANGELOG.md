@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.9.3] - 2025-12-06
+
+### Changed
+- Improved README documentation
+- Fixed release workflow (removed extra code block)
+- Restructured Advanced Method instructions
+
 ## [v0.9.1] - 2025-12-06
 
 SHA256: `78194058B8C4A04015FE221A659506C4BDA059A6BD8F7628561231464A32045A`

@@ -79,4 +79,3 @@ jobs:
             ```
             gh attestation verify elgato_audio_reset.exe --owner coylemichael
             ```
-            ```
