@@ -3,14 +3,18 @@
  * Kills audio processes, restarts audio services, relaunches WaveLink/StreamDeck,
  * and sets audio defaults.
  * 
+ * Version: 0.9
  * Compile: cl /O2 elgato_reset.c
  */
+
+#define APP_VERSION L"0.9"
 
 #define INITGUID
 #define COBJMACROS
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +34,9 @@
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "gdi32.lib")
+
+/* Use Windows subsystem to hide console window */
+#pragma comment(linker, "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
 
 /* ==========================================================================
  * CONFIGURATION - These can be overridden by config.txt in the same folder
@@ -107,6 +114,11 @@ struct IPolicyConfig { IPolicyConfigVtbl* lpVtbl; };
 #define ID_COMBO_RECORD_COMM       104
 #define ID_BUTTON_SAVE             105
 #define ID_HEADER                  106  /* Main header (blue) */
+#define ID_BUTTON_BROWSE           107
+#define ID_EDIT_FOLDER             108
+#define ID_BUTTON_RUN              109
+#define ID_CHECK_RUN_BACKGROUND    110
+#define ID_CHECK_SHOW_NOTIFY       111
 #define ID_LABEL_START             150  /* Title labels start at 150 */
 #define ID_DESC_START              200  /* Description labels start at 200 */
 
@@ -117,6 +129,24 @@ static WCHAR g_recordDeviceNames[MAX_DEVICES][256];
 static int g_playbackDeviceCount = 0;
 static int g_recordDeviceCount = 0;
 static char g_exeDir[MAX_PATH] = {0};
+static char g_installDir[MAX_PATH] = {0};  /* User-selected install folder */
+static char g_currentExePath[MAX_PATH] = {0};  /* Current exe location */
+static int g_shouldRun = 0;  /* Flag to indicate if we should run reset after GUI */
+static int g_configExists = 0;  /* Flag to track if config file exists */
+static int g_runInBackground = 0;  /* If true, run silently without GUI */
+static int g_showNotification = 1;  /* If true, show notification on completion */
+
+/* Saved config values (for comparison with current Windows settings) */
+static WCHAR g_savedPlaybackDefault[256] = {0};
+static WCHAR g_savedPlaybackComm[256] = {0};
+static WCHAR g_savedRecordDefault[256] = {0};
+static WCHAR g_savedRecordComm[256] = {0};
+
+/* Current Windows audio settings */
+static WCHAR g_currentPlaybackDefault[256] = {0};
+static WCHAR g_currentPlaybackComm[256] = {0};
+static WCHAR g_currentRecordDefault[256] = {0};
+static WCHAR g_currentRecordComm[256] = {0};
 
 /* ========== Config File Path Helper ========== */
 static void getConfigPath(char* configPath, size_t len) {
@@ -126,6 +156,9 @@ static void getConfigPath(char* configPath, size_t len) {
 /* ========== Config File Loading ========== */
 static int loadConfig(const char* exePath) {
     char configPath[MAX_PATH];
+    
+    /* Store the full exe path */
+    strncpy(g_currentExePath, exePath, MAX_PATH);
     
     strncpy(g_exeDir, exePath, MAX_PATH);
     char* lastSlash = strrchr(g_exeDir, '\\');
@@ -161,12 +194,20 @@ static int loadConfig(const char* exePath) {
         /* Convert value to wide string and store */
         if (strcmp(key, "PLAYBACK_DEFAULT") == 0) {
             MultiByteToWideChar(CP_UTF8, 0, value, -1, g_playbackDefault, 256);
+            wcsncpy(g_savedPlaybackDefault, g_playbackDefault, 256);
         } else if (strcmp(key, "PLAYBACK_COMM") == 0) {
             MultiByteToWideChar(CP_UTF8, 0, value, -1, g_playbackComm, 256);
+            wcsncpy(g_savedPlaybackComm, g_playbackComm, 256);
         } else if (strcmp(key, "RECORD_DEFAULT") == 0) {
             MultiByteToWideChar(CP_UTF8, 0, value, -1, g_recordDefault, 256);
+            wcsncpy(g_savedRecordDefault, g_recordDefault, 256);
         } else if (strcmp(key, "RECORD_COMM") == 0) {
             MultiByteToWideChar(CP_UTF8, 0, value, -1, g_recordComm, 256);
+            wcsncpy(g_savedRecordComm, g_recordComm, 256);
+        } else if (strcmp(key, "RUN_IN_BACKGROUND") == 0) {
+            g_runInBackground = (strcmp(value, "1") == 0 || _stricmp(value, "true") == 0);
+        } else if (strcmp(key, "SHOW_NOTIFICATION") == 0) {
+            g_showNotification = (strcmp(value, "1") == 0 || _stricmp(value, "true") == 0);
         }
     }
     
@@ -174,8 +215,83 @@ static int loadConfig(const char* exePath) {
     return 1;
 }
 
+/* ========== Move/Copy Files to Install Folder ========== */
+static int moveToInstallDir(void) {
+    if (g_installDir[0] == '\0') return 0;
+    
+    /* Check if install dir is different from current exe location */
+    if (_stricmp(g_installDir, g_exeDir) == 0) {
+        /* Same directory, nothing to do */
+        return 1;
+    }
+    
+    /* Create install directory if it doesn't exist */
+    CreateDirectoryA(g_installDir, NULL);
+    
+    /* Build paths */
+    char srcExePath[MAX_PATH], destExePath[MAX_PATH];
+    char srcConfigPath[MAX_PATH], destConfigPath[MAX_PATH];
+    char srcLogDir[MAX_PATH], destLogDir[MAX_PATH];
+    
+    snprintf(srcExePath, MAX_PATH, "%s\\elgato_audio_reset.exe", g_exeDir);
+    snprintf(destExePath, MAX_PATH, "%s\\elgato_audio_reset.exe", g_installDir);
+    snprintf(srcConfigPath, MAX_PATH, "%s\\config.txt", g_exeDir);
+    snprintf(destConfigPath, MAX_PATH, "%s\\config.txt", g_installDir);
+    snprintf(srcLogDir, MAX_PATH, "%s\\logs", g_exeDir);
+    snprintf(destLogDir, MAX_PATH, "%s\\logs", g_installDir);
+    
+    /* Copy the exe */
+    CopyFileA(g_currentExePath, destExePath, FALSE);
+    
+    /* Move config if it exists in old location */
+    if (GetFileAttributesA(srcConfigPath) != INVALID_FILE_ATTRIBUTES) {
+        MoveFileExA(srcConfigPath, destConfigPath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED);
+    }
+    
+    /* Move logs folder if it exists */
+    if (GetFileAttributesA(srcLogDir) != INVALID_FILE_ATTRIBUTES) {
+        /* Create dest logs folder */
+        CreateDirectoryA(destLogDir, NULL);
+        
+        /* Find and move all log files */
+        WIN32_FIND_DATAA fd;
+        char searchPath[MAX_PATH];
+        snprintf(searchPath, MAX_PATH, "%s\\*.log", srcLogDir);
+        HANDLE hFind = FindFirstFileA(searchPath, &fd);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                char srcFile[MAX_PATH], destFile[MAX_PATH];
+                snprintf(srcFile, MAX_PATH, "%s\\%s", srcLogDir, fd.cFileName);
+                snprintf(destFile, MAX_PATH, "%s\\%s", destLogDir, fd.cFileName);
+                MoveFileExA(srcFile, destFile, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED);
+            } while (FindNextFileA(hFind, &fd));
+            FindClose(hFind);
+        }
+        
+        /* Try to remove old logs folder (will fail if not empty, which is fine) */
+        RemoveDirectoryA(srcLogDir);
+    }
+    
+    /* Update g_exeDir to the new install location */
+    strncpy(g_exeDir, g_installDir, MAX_PATH);
+    
+    return 1;
+}
+
 /* ========== Save Config File ========== */
 static void saveConfig(void) {
+    /* First, move files to install dir if it changed */
+    if (g_installDir[0] != '\0') {
+        moveToInstallDir();
+        /* Use install dir for config */
+        strncpy(g_exeDir, g_installDir, MAX_PATH);
+    }
+    
+    /* Create logs subfolder */
+    char logDir[MAX_PATH];
+    snprintf(logDir, MAX_PATH, "%s\\logs", g_exeDir);
+    CreateDirectoryA(logDir, NULL);
+    
     char configPath[MAX_PATH];
     getConfigPath(configPath, MAX_PATH);
     
@@ -199,6 +315,8 @@ static void saveConfig(void) {
     fprintf(f, "RECORD_DEFAULT=%s\n", buf);
     WideCharToMultiByte(CP_UTF8, 0, g_recordComm, -1, buf, sizeof(buf), NULL, NULL);
     fprintf(f, "RECORD_COMM=%s\n", buf);
+    fprintf(f, "RUN_IN_BACKGROUND=%d\n", g_runInBackground ? 1 : 0);
+    fprintf(f, "SHOW_NOTIFICATION=%d\n", g_showNotification ? 1 : 0);
     
     fclose(f);
 }
@@ -274,7 +392,11 @@ static void enumerateDevicesForGUI(void) {
             PROPVARIANT pv;
             PropVariantInit(&pv);
             if (SUCCEEDED(IPropertyStore_GetValue(pStore, &PKEY_Device_FriendlyName, &pv)) && pv.pwszVal) {
-                wcsncpy(g_playbackDefault, pv.pwszVal, 255);
+                wcsncpy(g_currentPlaybackDefault, pv.pwszVal, 255);
+                /* Only set as default if no config loaded */
+                if (g_savedPlaybackDefault[0] == L'\0') {
+                    wcsncpy(g_playbackDefault, pv.pwszVal, 255);
+                }
                 PropVariantClear(&pv);
             }
             IPropertyStore_Release(pStore);
@@ -287,7 +409,10 @@ static void enumerateDevicesForGUI(void) {
             PROPVARIANT pv;
             PropVariantInit(&pv);
             if (SUCCEEDED(IPropertyStore_GetValue(pStore, &PKEY_Device_FriendlyName, &pv)) && pv.pwszVal) {
-                wcsncpy(g_playbackComm, pv.pwszVal, 255);
+                wcsncpy(g_currentPlaybackComm, pv.pwszVal, 255);
+                if (g_savedPlaybackComm[0] == L'\0') {
+                    wcsncpy(g_playbackComm, pv.pwszVal, 255);
+                }
                 PropVariantClear(&pv);
             }
             IPropertyStore_Release(pStore);
@@ -300,7 +425,10 @@ static void enumerateDevicesForGUI(void) {
             PROPVARIANT pv;
             PropVariantInit(&pv);
             if (SUCCEEDED(IPropertyStore_GetValue(pStore, &PKEY_Device_FriendlyName, &pv)) && pv.pwszVal) {
-                wcsncpy(g_recordDefault, pv.pwszVal, 255);
+                wcsncpy(g_currentRecordDefault, pv.pwszVal, 255);
+                if (g_savedRecordDefault[0] == L'\0') {
+                    wcsncpy(g_recordDefault, pv.pwszVal, 255);
+                }
                 PropVariantClear(&pv);
             }
             IPropertyStore_Release(pStore);
@@ -313,7 +441,10 @@ static void enumerateDevicesForGUI(void) {
             PROPVARIANT pv;
             PropVariantInit(&pv);
             if (SUCCEEDED(IPropertyStore_GetValue(pStore, &PKEY_Device_FriendlyName, &pv)) && pv.pwszVal) {
-                wcsncpy(g_recordComm, pv.pwszVal, 255);
+                wcsncpy(g_currentRecordComm, pv.pwszVal, 255);
+                if (g_savedRecordComm[0] == L'\0') {
+                    wcsncpy(g_recordComm, pv.pwszVal, 255);
+                }
                 PropVariantClear(&pv);
             }
             IPropertyStore_Release(pStore);
@@ -328,6 +459,7 @@ static void enumerateDevicesForGUI(void) {
 /* ========== GUI Dialog Procedure ========== */
 static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static HWND hComboPlaybackDefault, hComboRecordDefault, hComboPlaybackComm, hComboRecordComm;
+    static HWND hEditFolder, hButtonSave, hButtonRun, hButtonBrowse;
     static HBRUSH hBrushBg, hBrushEdit;
     static HFONT hFont, hFontBold, hFontSmall;
     
@@ -356,10 +488,27 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             
             /* Subheader */
             HWND hSubheader = CreateWindowW(L"STATIC", 
-                L"These are your current default audio devices. No changes are needed\nif you're happy with your current input/output configuration.",
-                WS_CHILD | WS_VISIBLE, 20, yPos, 460, 40, hwnd, (HMENU)(ID_DESC_START), NULL, NULL);
+                L"Select your audio devices and choose where to install.",
+                WS_CHILD | WS_VISIBLE, 20, yPos, 460, 20, hwnd, (HMENU)(ID_DESC_START), NULL, NULL);
             SendMessage(hSubheader, WM_SETFONT, (WPARAM)hFontSmall, TRUE);
-            yPos += 55;
+            yPos += 30;
+            
+            /* Install Folder */
+            HWND hLabelFolder = CreateWindowW(L"STATIC", L"Install Folder",
+                WS_CHILD | WS_VISIBLE, 20, yPos, 460, 20, hwnd, (HMENU)(ID_LABEL_START), NULL, NULL);
+            SendMessage(hLabelFolder, WM_SETFONT, (WPARAM)hFont, TRUE);
+            HWND hDescFolder = CreateWindowW(L"STATIC", L"Change this to move everything to a new folder",
+                WS_CHILD | WS_VISIBLE, 20, yPos + 18, 460, 18, hwnd, (HMENU)(ID_DESC_START + 5), NULL, NULL);
+            SendMessage(hDescFolder, WM_SETFONT, (WPARAM)hFontSmall, TRUE);
+            hEditFolder = CreateWindowW(L"EDIT", L"",
+                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 20, yPos + 40, 370, 25,
+                hwnd, (HMENU)ID_EDIT_FOLDER, NULL, NULL);
+            SendMessage(hEditFolder, WM_SETFONT, (WPARAM)hFont, TRUE);
+            hButtonBrowse = CreateWindowW(L"BUTTON", L"Browse...",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 400, yPos + 38, 80, 28,
+                hwnd, (HMENU)ID_BUTTON_BROWSE, NULL, NULL);
+            SendMessage(hButtonBrowse, WM_SETFONT, (WPARAM)hFont, TRUE);
+            yPos += 75;
             
             /* Default Playback Device */
             HWND hLabel1 = CreateWindowW(L"STATIC", L"Default Playback Device",
@@ -411,13 +560,42 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 20, yPos + 40, 460, 200,
                 hwnd, (HMENU)ID_COMBO_RECORD_COMM, NULL, NULL);
             SendMessage(hComboRecordComm, WM_SETFONT, (WPARAM)hFont, TRUE);
-            yPos += 85;
+            yPos += 75;
             
-            /* Save button */
-            HWND hButton = CreateWindowW(L"BUTTON", L"Save",
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 160, yPos, 180, 35,
+            /* Checkboxes row - two checkboxes side by side */
+            HWND hCheckRunBackground = CreateWindowW(L"BUTTON", L"Run in background",
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 20, yPos, 200, 20,
+                hwnd, (HMENU)ID_CHECK_RUN_BACKGROUND, NULL, NULL);
+            SendMessage(hCheckRunBackground, WM_SETFONT, (WPARAM)hFont, TRUE);
+            if (g_runInBackground) {
+                SendMessage(hCheckRunBackground, BM_SETCHECK, BST_CHECKED, 0);
+            }
+            
+            HWND hCheckShowNotify = CreateWindowW(L"BUTTON", L"Show completion notification",
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 225, yPos, 250, 20,
+                hwnd, (HMENU)ID_CHECK_SHOW_NOTIFY, NULL, NULL);
+            SendMessage(hCheckShowNotify, WM_SETFONT, (WPARAM)hFont, TRUE);
+            if (g_showNotification) {
+                SendMessage(hCheckShowNotify, BM_SETCHECK, BST_CHECKED, 0);
+            }
+            yPos += 40;
+            
+            /* Buttons centered with gap between them */
+            /* Window is 520px wide, buttons are 120px each, 20px gap = 260px total */
+            /* Center: (520 - 260) / 2 = 130px from left */
+            
+            /* Save button - saves config only */
+            hButtonSave = CreateWindowW(L"BUTTON", L"Save",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 130, yPos, 120, 35,
                 hwnd, (HMENU)ID_BUTTON_SAVE, NULL, NULL);
-            SendMessage(hButton, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            SendMessage(hButtonSave, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            
+            /* Run button - disabled until config exists */
+            hButtonRun = CreateWindowW(L"BUTTON", L"Fix Audio",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | (g_configExists ? 0 : WS_DISABLED), 
+                270, yPos, 120, 35,
+                hwnd, (HMENU)ID_BUTTON_RUN, NULL, NULL);
+            SendMessage(hButtonRun, WM_SETFONT, (WPARAM)hFontBold, TRUE);
             
             /* Populate combos with playback devices */
             for (int i = 0; i < g_playbackDeviceCount; i++) {
@@ -440,6 +618,22 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             SendMessage(hComboRecordDefault, CB_SETCURSEL, idx >= 0 ? idx : 0, 0);
             idx = (int)SendMessageW(hComboRecordComm, CB_FINDSTRINGEXACT, -1, (LPARAM)g_recordComm);
             SendMessage(hComboRecordComm, CB_SETCURSEL, idx >= 0 ? idx : 0, 0);
+            
+            /* Always show current exe directory in the folder field */
+            /* If install dir was set via env var, use that; otherwise use exe dir */
+            if (g_installDir[0] == '\0' && g_exeDir[0] != '\0') {
+                strncpy(g_installDir, g_exeDir, MAX_PATH);
+            }
+            if (g_installDir[0] != '\0') {
+                WCHAR wPath[MAX_PATH];
+                MultiByteToWideChar(CP_UTF8, 0, g_installDir, -1, wPath, MAX_PATH);
+                SetWindowTextW(hEditFolder, wPath);
+            } else if (g_exeDir[0] != '\0') {
+                WCHAR wPath[MAX_PATH];
+                MultiByteToWideChar(CP_UTF8, 0, g_exeDir, -1, wPath, MAX_PATH);
+                SetWindowTextW(hEditFolder, wPath);
+                strncpy(g_installDir, g_exeDir, MAX_PATH);
+            }
             
             return 0;
         }
@@ -473,8 +667,28 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
         
         case WM_COMMAND:
-            if (LOWORD(wParam) == ID_BUTTON_SAVE) {
-                /* Get selections */
+            if (LOWORD(wParam) == ID_BUTTON_BROWSE) {
+                /* Show folder browser dialog */
+                BROWSEINFOW bi = {0};
+                bi.hwndOwner = hwnd;
+                bi.lpszTitle = L"Select Install Folder (optional)";
+                bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+                
+                LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+                if (pidl) {
+                    WCHAR wPath[MAX_PATH];
+                    if (SHGetPathFromIDListW(pidl, wPath)) {
+                        /* Store in global */
+                        WideCharToMultiByte(CP_UTF8, 0, wPath, -1, g_installDir, MAX_PATH, NULL, NULL);
+                        /* Update edit box */
+                        SetWindowTextW(hEditFolder, wPath);
+                    }
+                    CoTaskMemFree(pidl);
+                }
+                return 0;
+            }
+            else if (LOWORD(wParam) == ID_BUTTON_SAVE) {
+                /* Save button - saves config, enables Run, but doesn't close */
                 int idx = (int)SendMessage(hComboPlaybackDefault, CB_GETCURSEL, 0, 0);
                 if (idx >= 0) SendMessageW(hComboPlaybackDefault, CB_GETLBTEXT, idx, (LPARAM)g_playbackDefault);
                 
@@ -487,8 +701,74 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 idx = (int)SendMessage(hComboRecordComm, CB_GETCURSEL, 0, 0);
                 if (idx >= 0) SendMessageW(hComboRecordComm, CB_GETLBTEXT, idx, (LPARAM)g_recordComm);
                 
-                /* Save config */
+                /* Get install folder from edit box */
+                WCHAR wInstallDir[MAX_PATH];
+                GetWindowTextW(hEditFolder, wInstallDir, MAX_PATH);
+                WideCharToMultiByte(CP_UTF8, 0, wInstallDir, -1, g_installDir, MAX_PATH, NULL, NULL);
+                
+                /* Get checkbox states */
+                HWND hCheckBg = GetDlgItem(hwnd, ID_CHECK_RUN_BACKGROUND);
+                g_runInBackground = (SendMessage(hCheckBg, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                HWND hCheckNotify = GetDlgItem(hwnd, ID_CHECK_SHOW_NOTIFY);
+                g_showNotification = (SendMessage(hCheckNotify, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                
+                /* Save config (moves files to install folder if path changed) */
                 saveConfig();
+                g_configExists = 1;
+                
+                /* Enable the Run button now that config exists */
+                EnableWindow(hButtonRun, TRUE);
+                
+                /* Show success message with exe path */
+                char exePath[MAX_PATH];
+                if (g_installDir[0] != '\0') {
+                    snprintf(exePath, MAX_PATH, "%s\\elgato_audio_reset.exe", g_installDir);
+                } else {
+                    strncpy(exePath, g_currentExePath, MAX_PATH);
+                }
+                
+                char msg[1024];
+                snprintf(msg, sizeof(msg), 
+                    "Configuration saved! Run via the \"Fix Audio\" button.\n\n"
+                    "Executable saved:\n%s\n\n"
+                    "You can assign the executable to a hotkey or macro button. "
+                    "If you set the config to run in the background with no notification, "
+                    "your audio will reset silently within a few seconds on key press.",
+                    exePath);
+                MessageBoxA(hwnd, msg, "Elgato Audio Reset", MB_OK | MB_ICONINFORMATION);
+                
+                /* Don't close - user can click Run or X */
+            }
+            else if (LOWORD(wParam) == ID_BUTTON_RUN) {
+                /* Run button - saves config and runs the reset */
+                int idx = (int)SendMessage(hComboPlaybackDefault, CB_GETCURSEL, 0, 0);
+                if (idx >= 0) SendMessageW(hComboPlaybackDefault, CB_GETLBTEXT, idx, (LPARAM)g_playbackDefault);
+                
+                idx = (int)SendMessage(hComboPlaybackComm, CB_GETCURSEL, 0, 0);
+                if (idx >= 0) SendMessageW(hComboPlaybackComm, CB_GETLBTEXT, idx, (LPARAM)g_playbackComm);
+                
+                idx = (int)SendMessage(hComboRecordDefault, CB_GETCURSEL, 0, 0);
+                if (idx >= 0) SendMessageW(hComboRecordDefault, CB_GETLBTEXT, idx, (LPARAM)g_recordDefault);
+                
+                idx = (int)SendMessage(hComboRecordComm, CB_GETCURSEL, 0, 0);
+                if (idx >= 0) SendMessageW(hComboRecordComm, CB_GETLBTEXT, idx, (LPARAM)g_recordComm);
+                
+                /* Get install folder from edit box */
+                WCHAR wInstallDir[MAX_PATH];
+                GetWindowTextW(hEditFolder, wInstallDir, MAX_PATH);
+                WideCharToMultiByte(CP_UTF8, 0, wInstallDir, -1, g_installDir, MAX_PATH, NULL, NULL);
+                
+                /* Get checkbox states */
+                HWND hCheckBg = GetDlgItem(hwnd, ID_CHECK_RUN_BACKGROUND);
+                g_runInBackground = (SendMessage(hCheckBg, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                HWND hCheckNotify = GetDlgItem(hwnd, ID_CHECK_SHOW_NOTIFY);
+                g_showNotification = (SendMessage(hCheckNotify, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                
+                /* Save config (moves files to install folder if path changed) */
+                saveConfig();
+                
+                /* Set flag to run the reset after GUI closes */
+                g_shouldRun = 1;
                 
                 DestroyWindow(hwnd);
             }
@@ -503,8 +783,8 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
         
         case WM_CLOSE:
-            /* User closed without saving - exit app */
-            ExitProcess(0);
+            /* User closed via X - just close the window */
+            DestroyWindow(hwnd);
             return 0;
         
         case WM_DESTROY:
@@ -520,10 +800,265 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+/* ========== Check for Config Mismatch ========== */
+static int hasConfigMismatch(void) {
+    if (g_savedPlaybackDefault[0] == L'\0') return 0; /* No saved config */
+    
+    if (wcscmp(g_savedPlaybackDefault, g_currentPlaybackDefault) != 0) return 1;
+    if (wcscmp(g_savedPlaybackComm, g_currentPlaybackComm) != 0) return 1;
+    if (wcscmp(g_savedRecordDefault, g_currentRecordDefault) != 0) return 1;
+    if (wcscmp(g_savedRecordComm, g_currentRecordComm) != 0) return 1;
+    
+    return 0;
+}
+
+/* ========== Mismatch Dialog IDs ========== */
+#define ID_MISMATCH_RESTORE  501
+#define ID_MISMATCH_KEEP     502
+#define ID_MISMATCH_TITLE    503
+#define ID_MISMATCH_SAVED_HDR    504
+#define ID_MISMATCH_CURRENT_HDR  505
+#define ID_MISMATCH_LABEL_BASE   510  /* 510-517 for blue labels */
+
+static int g_mismatchResult = 0;
+
+/* ========== Mismatch Dialog Procedure ========== */
+static LRESULT CALLBACK MismatchDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static HFONT hFont, hFontBold, hFontDevice;
+    static HBRUSH hBrushBg;
+    
+    switch (msg) {
+        case WM_CREATE: {
+            hBrushBg = CreateSolidBrush(RGB(30, 30, 30));
+            hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                               DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            hFontBold = CreateFontW(18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                   OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                   DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            hFontDevice = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                     OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                     DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            
+            int yPos = 15;
+            int colWidth = 380;
+            int leftCol = 20;
+            int rightCol = 420;
+            int labelHeight = 18;
+            int deviceHeight = 18;
+            int rowSpacing = 12;
+            
+            /* Title */
+            HWND hTitle = CreateWindowW(L"STATIC", 
+                L"Your saved audio configuration differs from current Windows settings.",
+                WS_CHILD | WS_VISIBLE | SS_CENTER, 20, yPos, 760, 20, hwnd, (HMENU)ID_MISMATCH_TITLE, NULL, NULL);
+            SendMessage(hTitle, WM_SETFONT, (WPARAM)hFont, TRUE);
+            yPos += 40;
+            
+            /* Column headers */
+            HWND hSavedHeader = CreateWindowW(L"STATIC", L"Saved Configuration",
+                WS_CHILD | WS_VISIBLE | SS_CENTER, leftCol, yPos, colWidth, 24, hwnd, (HMENU)ID_MISMATCH_SAVED_HDR, NULL, NULL);
+            SendMessage(hSavedHeader, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            
+            HWND hCurrentHeader = CreateWindowW(L"STATIC", L"Current Windows Settings",
+                WS_CHILD | WS_VISIBLE | SS_CENTER, rightCol, yPos, colWidth, 24, hwnd, (HMENU)ID_MISMATCH_CURRENT_HDR, NULL, NULL);
+            SendMessage(hCurrentHeader, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            yPos += 35;
+            
+            /* Row 1: Playback Default */
+            CreateWindowW(L"STATIC", L"Playback Default:",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, leftCol, yPos, colWidth, labelHeight, hwnd, (HMENU)(ID_MISMATCH_LABEL_BASE + 0), NULL, NULL);
+            CreateWindowW(L"STATIC", L"Playback Default:",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, rightCol, yPos, colWidth, labelHeight, hwnd, (HMENU)(ID_MISMATCH_LABEL_BASE + 1), NULL, NULL);
+            yPos += labelHeight;
+            
+            HWND hSavedPD = CreateWindowW(L"STATIC", g_savedPlaybackDefault,
+                WS_CHILD | WS_VISIBLE | SS_LEFT, leftCol, yPos, colWidth, deviceHeight, hwnd, NULL, NULL, NULL);
+            SendMessage(hSavedPD, WM_SETFONT, (WPARAM)hFontDevice, TRUE);
+            HWND hCurrentPD = CreateWindowW(L"STATIC", g_currentPlaybackDefault,
+                WS_CHILD | WS_VISIBLE | SS_LEFT, rightCol, yPos, colWidth, deviceHeight, hwnd, NULL, NULL, NULL);
+            SendMessage(hCurrentPD, WM_SETFONT, (WPARAM)hFontDevice, TRUE);
+            yPos += deviceHeight + rowSpacing;
+            
+            /* Row 2: Playback Comms */
+            CreateWindowW(L"STATIC", L"Playback Comms:",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, leftCol, yPos, colWidth, labelHeight, hwnd, (HMENU)(ID_MISMATCH_LABEL_BASE + 2), NULL, NULL);
+            CreateWindowW(L"STATIC", L"Playback Comms:",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, rightCol, yPos, colWidth, labelHeight, hwnd, (HMENU)(ID_MISMATCH_LABEL_BASE + 3), NULL, NULL);
+            yPos += labelHeight;
+            
+            HWND hSavedPC = CreateWindowW(L"STATIC", g_savedPlaybackComm,
+                WS_CHILD | WS_VISIBLE | SS_LEFT, leftCol, yPos, colWidth, deviceHeight, hwnd, NULL, NULL, NULL);
+            SendMessage(hSavedPC, WM_SETFONT, (WPARAM)hFontDevice, TRUE);
+            HWND hCurrentPC = CreateWindowW(L"STATIC", g_currentPlaybackComm,
+                WS_CHILD | WS_VISIBLE | SS_LEFT, rightCol, yPos, colWidth, deviceHeight, hwnd, NULL, NULL, NULL);
+            SendMessage(hCurrentPC, WM_SETFONT, (WPARAM)hFontDevice, TRUE);
+            yPos += deviceHeight + rowSpacing;
+            
+            /* Row 3: Recording Default */
+            CreateWindowW(L"STATIC", L"Recording Default:",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, leftCol, yPos, colWidth, labelHeight, hwnd, (HMENU)(ID_MISMATCH_LABEL_BASE + 4), NULL, NULL);
+            CreateWindowW(L"STATIC", L"Recording Default:",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, rightCol, yPos, colWidth, labelHeight, hwnd, (HMENU)(ID_MISMATCH_LABEL_BASE + 5), NULL, NULL);
+            yPos += labelHeight;
+            
+            HWND hSavedRD = CreateWindowW(L"STATIC", g_savedRecordDefault,
+                WS_CHILD | WS_VISIBLE | SS_LEFT, leftCol, yPos, colWidth, deviceHeight, hwnd, NULL, NULL, NULL);
+            SendMessage(hSavedRD, WM_SETFONT, (WPARAM)hFontDevice, TRUE);
+            HWND hCurrentRD = CreateWindowW(L"STATIC", g_currentRecordDefault,
+                WS_CHILD | WS_VISIBLE | SS_LEFT, rightCol, yPos, colWidth, deviceHeight, hwnd, NULL, NULL, NULL);
+            SendMessage(hCurrentRD, WM_SETFONT, (WPARAM)hFontDevice, TRUE);
+            yPos += deviceHeight + rowSpacing;
+            
+            /* Row 4: Recording Comms */
+            CreateWindowW(L"STATIC", L"Recording Comms:",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, leftCol, yPos, colWidth, labelHeight, hwnd, (HMENU)(ID_MISMATCH_LABEL_BASE + 6), NULL, NULL);
+            CreateWindowW(L"STATIC", L"Recording Comms:",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, rightCol, yPos, colWidth, labelHeight, hwnd, (HMENU)(ID_MISMATCH_LABEL_BASE + 7), NULL, NULL);
+            yPos += labelHeight;
+            
+            HWND hSavedRC = CreateWindowW(L"STATIC", g_savedRecordComm,
+                WS_CHILD | WS_VISIBLE | SS_LEFT, leftCol, yPos, colWidth, deviceHeight, hwnd, NULL, NULL, NULL);
+            SendMessage(hSavedRC, WM_SETFONT, (WPARAM)hFontDevice, TRUE);
+            HWND hCurrentRC = CreateWindowW(L"STATIC", g_currentRecordComm,
+                WS_CHILD | WS_VISIBLE | SS_LEFT, rightCol, yPos, colWidth, deviceHeight, hwnd, NULL, NULL, NULL);
+            SendMessage(hCurrentRC, WM_SETFONT, (WPARAM)hFontDevice, TRUE);
+            yPos += deviceHeight + 20;
+            
+            /* Buttons - centered in dialog */
+            HWND hBtnRestore = CreateWindowW(L"BUTTON", L"Restore Saved",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 220, yPos, 150, 35,
+                hwnd, (HMENU)ID_MISMATCH_RESTORE, NULL, NULL);
+            SendMessage(hBtnRestore, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            
+            HWND hBtnKeep = CreateWindowW(L"BUTTON", L"Keep Current",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 430, yPos, 150, 35,
+                hwnd, (HMENU)ID_MISMATCH_KEEP, NULL, NULL);
+            SendMessage(hBtnKeep, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            
+            /* Apply font to blue labels */
+            for (int i = 0; i < 8; i++) {
+                HWND hLabel = GetDlgItem(hwnd, ID_MISMATCH_LABEL_BASE + i);
+                if (hLabel) SendMessage(hLabel, WM_SETFONT, (WPARAM)hFont, TRUE);
+            }
+            
+            return 0;
+        }
+        
+        case WM_CTLCOLORSTATIC: {
+            HDC hdc = (HDC)wParam;
+            HWND hCtrl = (HWND)lParam;
+            int ctrlId = GetDlgCtrlID(hCtrl);
+            
+            SetBkColor(hdc, RGB(30, 30, 30));
+            
+            /* Blue for headers and subheading labels */
+            if (ctrlId == ID_MISMATCH_TITLE ||
+                ctrlId == ID_MISMATCH_SAVED_HDR ||
+                ctrlId == ID_MISMATCH_CURRENT_HDR ||
+                (ctrlId >= ID_MISMATCH_LABEL_BASE && ctrlId <= ID_MISMATCH_LABEL_BASE + 7)) {
+                SetTextColor(hdc, RGB(100, 200, 255));
+            } else {
+                /* White for device names */
+                SetTextColor(hdc, RGB(255, 255, 255));
+            }
+            return (LRESULT)hBrushBg;
+        }
+        
+        case WM_COMMAND:
+            if (LOWORD(wParam) == ID_MISMATCH_RESTORE) {
+                g_mismatchResult = 1;
+                DestroyWindow(hwnd);
+            } else if (LOWORD(wParam) == ID_MISMATCH_KEEP) {
+                g_mismatchResult = 0;
+                DestroyWindow(hwnd);
+            }
+            return 0;
+        
+        case WM_ERASEBKGND: {
+            HDC hdc = (HDC)wParam;
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            FillRect(hdc, &rc, hBrushBg);
+            return 1;
+        }
+        
+        case WM_CLOSE:
+            g_mismatchResult = 0; /* Default to keep current on close */
+            DestroyWindow(hwnd);
+            return 0;
+        
+        case WM_DESTROY:
+            DeleteObject(hBrushBg);
+            DeleteObject(hFont);
+            DeleteObject(hFontBold);
+            DeleteObject(hFontDevice);
+            PostQuitMessage(0);
+            return 0;
+    }
+    
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+/* ========== Show Mismatch Dialog ========== */
+/* Returns 1 if user chose "Restore Saved", 0 if "Keep Current" */
+static int showMismatchDialog(void) {
+    /* Register window class */
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = MismatchDlgProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.lpszClassName = L"ElgatoMismatchDlg";
+    RegisterClassW(&wc);
+    
+    /* Calculate center position */
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int winW = 820, winH = 380;
+    int x = (screenW - winW) / 2;
+    int y = (screenH - winH) / 2;
+    
+    /* Create window */
+    HWND hwnd = CreateWindowExW(0, L"ElgatoMismatchDlg", L"Audio Configuration Mismatch",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        x, y, winW, winH, NULL, NULL, GetModuleHandle(NULL), NULL);
+    
+    ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
+    
+    /* Message loop */
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    
+    if (g_mismatchResult == 1) {
+        /* User chose to restore saved defaults */
+        wcsncpy(g_playbackDefault, g_savedPlaybackDefault, 256);
+        wcsncpy(g_playbackComm, g_savedPlaybackComm, 256);
+        wcsncpy(g_recordDefault, g_savedRecordDefault, 256);
+        wcsncpy(g_recordComm, g_savedRecordComm, 256);
+    } else {
+        /* User chose to keep current Windows settings */
+        wcsncpy(g_playbackDefault, g_currentPlaybackDefault, 256);
+        wcsncpy(g_playbackComm, g_currentPlaybackComm, 256);
+        wcsncpy(g_recordDefault, g_currentRecordDefault, 256);
+        wcsncpy(g_recordComm, g_currentRecordComm, 256);
+    }
+    
+    return g_mismatchResult;
+}
+
 /* ========== Show Config GUI ========== */
 static void showConfigGUI(void) {
     /* Enumerate devices first */
     enumerateDevicesForGUI();
+    
+    /* Check for mismatch between saved config and current Windows settings */
+    if (g_configExists && hasConfigMismatch()) {
+        showMismatchDialog();
+    }
     
     /* Register window class */
     WNDCLASSW wc = {0};
@@ -536,12 +1071,14 @@ static void showConfigGUI(void) {
     /* Calculate center position */
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
-    int winW = 520, winH = 500;
+    int winW = 520, winH = 600;
     int x = (screenW - winW) / 2;
     int y = (screenH - winH) / 2;
     
     /* Create window */
-    HWND hwnd = CreateWindowExW(0, L"ElgatoResetConfig", L"Elgato Audio Reset",
+    WCHAR windowTitle[64];
+    swprintf(windowTitle, 64, L"Elgato Audio Reset v%s", APP_VERSION);
+    HWND hwnd = CreateWindowExW(0, L"ElgatoResetConfig", windowTitle,
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         x, y, winW, winH, NULL, NULL, GetModuleHandle(NULL), NULL);
     
@@ -1115,17 +1652,22 @@ int main(int argc, char* argv[]) {
     char exePath[MAX_PATH];
     GetModuleFileNameA(NULL, exePath, MAX_PATH);
     
-    /* Set console title */
-    SetConsoleTitleA("Elgato Audio Reset");
+    /* Check for install dir environment variable (set by PowerShell installer) */
+    char* envInstallDir = getenv("ELGATO_INSTALL_DIR");
+    if (envInstallDir && envInstallDir[0]) {
+        strncpy(g_installDir, envInstallDir, MAX_PATH);
+    }
     
-    /* Unbuffered output */
-    setvbuf(stdout, NULL, _IONBF, 0);
-    
-    /* Load config file - if it doesn't exist, show GUI */
-    int configExists = loadConfig(exePath);
-    if (!configExists) {
-        /* First run or config deleted - show device selection GUI */
+    /* Load config file - track if it exists for Run button state */
+    g_configExists = loadConfig(exePath);
+    if (!g_configExists || !g_runInBackground) {
+        /* First run, config deleted, or user wants to see GUI */
         showConfigGUI();
+        
+        /* If user didn't click Fix Audio, exit without running reset */
+        if (!g_shouldRun) {
+            return 0;
+        }
     }
     
     /* Initialize log */
@@ -1160,7 +1702,17 @@ int main(int argc, char* argv[]) {
     if (g_streamDeckPath[0]) {
         launchApp(g_streamDeckPath, "StreamDeck.exe", "StreamDeck");
         logMsg("[i] Waiting for StreamDeck to fully initialize...\n");
-        Sleep(5000); /* StreamDeck needs extra time to fully load */
+        
+        /* Wait for StreamDeck window to appear (up to 30 seconds) */
+        for (int i = 0; i < 30; i++) {
+            Sleep(1000);
+            HWND hwnd = FindWindowA(NULL, "Stream Deck");
+            if (hwnd) {
+                Sleep(2000); /* Extra time for full initialization */
+                break;
+            }
+        }
+        
         minimizeProcessWindows("StreamDeck.exe");
         logMsg("[i] StreamDeck minimized.\n");
     }
@@ -1174,6 +1726,11 @@ int main(int argc, char* argv[]) {
     logMsg("[i] Log saved to:\n    %s\n", g_logPath);
     
     if (g_logFile) fclose(g_logFile);
+    
+    /* Show completion notification if enabled */
+    if (g_showNotification) {
+        MessageBoxA(NULL, "Elgato Audio Reset Complete", "Elgato Audio Reset", MB_OK | MB_ICONINFORMATION);
+    }
     
     return 0;
 }

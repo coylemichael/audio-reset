@@ -1,12 +1,20 @@
 # Elgato Audio Reset Tool
 
+**Version 0.9**
+
 Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
+
+## What It Does
+
+1. Kills WaveLink, WaveLinkSE, and StreamDeck processes
+2. Restarts Windows audio services (audiosrv, AudioEndpointBuilder)  
+3. Relaunches WaveLink and StreamDeck (minimized)
+4. Sets your configured audio device defaults
+5. Optionally shows a completion notification
 
 ## Quick Start
 
-The recommended method - creates a scheduled task so no UAC prompt appears when you use it.
-
-> **Why a scheduled task?** Windows requires admin privileges to restart audio services. The scheduled task runs with elevated permissions you grant once during setup, so subsequent runs don't need UAC approval. The task only executes the specific `elgato_reset.exe` you installed—it doesn't grant blanket admin access to anything else. Any attempt to modify, delete, or replace the scheduled task requires admin approval again, so nothing can change it without your knowledge.
+The recommended method - creates a scheduled task with admin privileges so you don't get a UAC prompt every time. The `.bat` file simply triggers the scheduled task, which was configured once during initial setup.
 
 1. Open PowerShell as **Administrator**
 2. Run:
@@ -16,12 +24,17 @@ The recommended method - creates a scheduled task so no UAC prompt appears when 
 ```
 
 3. A device selection window will appear - select your preferred audio devices from the dropdowns
-4. Click **Save**
-5. Done! Point your Stream Deck button to:
+4. Configure options:
+   - **Run in background** - If checked, runs silently without showing the GUI on subsequent runs
+   - **Show completion notification** - If checked, displays "Elgato Audio Reset Complete" when done
+5. Click **Save** to save settings, or **Fix Audio** to save and execute immediately
+6. Done! Point your Stream Deck button to:
 
 ```
-%LOCALAPPDATA%\ElgatoReset\elgato_reset.bat
+%LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat
 ```
+
+> **Note:** Admin privileges are required because the tool restarts Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and terminates WaveLink/StreamDeck processes.
 
 ---
 
@@ -32,11 +45,12 @@ This method doesn't require admin during setup, but you'll see a UAC prompt ever
 
 ### Option A: Download the Release
 
-1. Download `elgato_reset.exe` from the [latest release](https://github.com/coylemichael/audio-reset/releases/latest)
-2. Place it wherever you like (Desktop, OneDrive, etc.)
-3. Run it once - a device selection GUI will appear
-4. Select your preferred audio devices and click **Save**
-5. Point your Stream Deck or Keyboard/Mouse Macro launcher directly to `elgato_reset.exe` (UAC prompt will appear each time).
+1. Download `elgato_audio_reset.exe` from the [latest release](https://github.com/coylemichael/audio-reset/releases/latest)
+2. Run it - a configuration window will appear
+3. Click **Browse** to select where you want the tool installed (creates its own folder)
+4. Select your preferred audio devices from the dropdowns
+5. Click **Save & Install**
+6. Point your Stream Deck or macro button to the installed `elgato_audio_reset.exe` (UAC prompt will appear each time)
 
 ### Option B: Clone and Build
 
@@ -46,61 +60,18 @@ This method doesn't require admin during setup, but you'll see a UAC prompt ever
    ```powershell
    cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && cd /d "C:\path\to\audio-reset\c" && cl /O2 elgato_reset.c'
    ```
-4. Run `elgato_reset.exe` - select your devices when prompted
+4. Run `elgato_audio_reset.exe` - select install folder and devices when prompted
 5. Subsequent runs will use the saved config (UAC prompt will appear each time).
 
 </details>
 
 ---
 
-## What It Does
-
-1. Kills WaveLink, WaveLinkSE, and StreamDeck processes
-2. Restarts Windows audio services (audiosrv, AudioEndpointBuilder)  
-3. Relaunches WaveLink and StreamDeck (minimized)
-4. Sets your configured audio device defaults
-
-> **Note:** Admin privileges are required because the tool uses `OpenSCManager` and `ControlService` to stop/restart Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and `TerminateProcess` to kill WaveLink/StreamDeck processes.
-
 ## Configuration
 
-On first run, the exe shows a device selection GUI and saves your choices to `config.txt` (in the same folder as the exe).
+On first run, the GUI lets you:
+- Choose an install folder
+- Select your preferred audio devices from dropdowns
+- Set preferences for background mode and notifications
 
-| Setting | Description |
-|---------|-------------|
-| `PLAYBACK_DEFAULT` | Where your system audio plays (games, music, videos, notifications) |
-| `PLAYBACK_COMM` | Where you hear voice chat (Discord, Teams, Zoom, etc.) |
-| `RECORD_DEFAULT` | Default microphone for apps that don't specify one |
-| `RECORD_COMM` | Microphone used for voice chat (Discord, Teams, Zoom, etc.) |
-
-### Changing Devices Later
-
-**Option 1:** Delete `config.txt` and run the exe again - the GUI will reappear.
-
-**Option 2:** Edit `config.txt` directly:
-
-```ini
-# Example config.txt
-PLAYBACK_DEFAULT=System (Elgato Virtual Audio)
-PLAYBACK_COMM=Voice Chat (Elgato Virtual Audio)
-RECORD_DEFAULT=Wave Link MicrophoneFX (Elgato Virtual Audio)
-RECORD_COMM=Microphone (Razer Kraken V4 - Chat)
-```
-
-To find device names: `Windows Key + R` → `mmsys.cpl` → copy the exact name from each device.
-
-## Files
-
-After Quick Start installation, files are located at:
-
-```
-%LOCALAPPDATA%\ElgatoReset\
-├── elgato_reset.exe    ← Main executable (self-contained with GUI)
-├── elgato_reset.bat    ← Trigger script for Stream Deck (runs via scheduled task)
-├── config.txt          ← Your device configuration (auto-generated)
-└── logs/               ← Log files from each run
-```
-
-## License
-
-[MIT](LICENSE)
+To change devices later, either uncheck "Run in background" in the GUI, or delete `config.txt` and run again.
