@@ -10,9 +10,12 @@ Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 - Sets your configured audio device defaults
 - Optionally shows a completion notification
 
+> [!WARNING]
+> Restarting audio services may briefly reset system volume to 100%. The tool attempts to prevent this, but **remove headphones during reset** to be safe.
+
 ## Quick Start
 
-The recommended method - creates a scheduled task with admin privileges so you don't get a UAC prompt every time. The `.bat` file simply triggers the scheduled task, which was configured once during initial setup.
+The recommended method - creates a scheduled task with admin privileges so you don't get a UAC prompt every time. The `.bat` file simply triggers the scheduled task.
 
 > [!IMPORTANT]
 > The scheduled task requires admin rights because the tool restarts Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and terminates WaveLink/StreamDeck processes.
@@ -26,7 +29,7 @@ The recommended method - creates a scheduled task with admin privileges so you d
 
 3. Select your preferred audio devices. Optionally set a custom install location (defaults to `%LOCALAPPDATA%\ElgatoReset\`)
 4. Configure options:
-   - **Run in background** - Runs silently without showing the GUI on subsequent runs
+   - **Run in background** - Skips the GUI on future runs and shows progress in the system tray
    - **Show completion notification** - Displays a popup when complete
 5. Click **Save** or **Fix Audio** to save and execute immediately
 6. Point your macro or hotkey to `%LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat`
@@ -65,12 +68,7 @@ This method doesn't require admin during setup, but you'll see a UAC prompt ever
 
 ## Configuration
 
-On first run, the GUI lets you:
-- Choose an install folder
-- Select your preferred audio devices from dropdowns
-- Set preferences for background mode and notifications
-
-To change devices later, either uncheck "Run in background" in the GUI, or delete `config.txt` and run again.
+On first run, the GUI lets you select your audio devices and preferences. To change settings later, just run the app again - click the system tray icon or re-run the exe to open the configuration window.
 
 ## Verification
 

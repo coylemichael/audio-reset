@@ -3,11 +3,11 @@
  * Kills audio processes, restarts audio services, relaunches WaveLink/StreamDeck,
  * and sets audio defaults.
  * 
- * Version: 0.9.3
+ * Version: 0.9.4
  * Compile: cl /O2 elgato_reset.c
  */
 
-#define APP_VERSION L"0.9.3"
+#define APP_VERSION L"0.9.4"
 
 #define INITGUID
 #define COBJMACROS
@@ -77,6 +77,10 @@ static char g_waveLinkPath[MAX_PATH] = {0};
 static char g_waveLinkSEPath[MAX_PATH] = {0};
 static char g_streamDeckPath[MAX_PATH] = {0};
 
+/* Saved volume levels for safe reset */
+static float g_savedPlaybackVolume = -1.0f;  /* -1 means not saved */
+static float g_savedCommVolume = -1.0f;
+
 /* ========== Audio GUIDs (manually defined) ========== */
 DEFINE_GUID(MY_CLSID_MMDeviceEnumerator, 0xBCDE0395, 0xE52F, 0x467C, 0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E);
 DEFINE_GUID(MY_IID_IMMDeviceEnumerator, 0xA95664D2, 0x9614, 0x4F35, 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6);
@@ -121,6 +125,17 @@ struct IPolicyConfig { IPolicyConfigVtbl* lpVtbl; };
 #define ID_CHECK_SHOW_NOTIFY       111
 #define ID_LABEL_START             150  /* Title labels start at 150 */
 #define ID_DESC_START              200  /* Description labels start at 200 */
+
+/* ========== System Tray ========== */
+#define WM_TRAYICON (WM_USER + 1)
+#define ID_TRAY_ICON 1001
+#define ID_TRAY_OPEN 2001
+#define ID_TRAY_RUN  2002
+#define ID_TRAY_EXIT 2003
+static NOTIFYICONDATAW g_nid = {0};
+static HWND g_trayHwnd = NULL;
+static const wchar_t* g_trayStatus = L"Starting...";
+static int g_trayAction = 0;  /* 0=none, 1=open config, 2=run reset, 3=exit */
 
 /* ========== Device Lists for GUI ========== */
 #define MAX_DEVICES 32
@@ -1554,6 +1569,87 @@ static int unmuteDevice(IMMDeviceEnumerator* pEnum, const WCHAR* name, EDataFlow
     return ok;
 }
 
+/* Get volume of default playback device */
+static float getDefaultPlaybackVolume(void) {
+    float volume = -1.0f;
+    
+    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) return volume;
+    
+    IMMDeviceEnumerator* pEnum = NULL;
+    hr = CoCreateInstance(&MY_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
+                          &MY_IID_IMMDeviceEnumerator, (void**)&pEnum);
+    if (FAILED(hr)) {
+        CoUninitialize();
+        return volume;
+    }
+    
+    IMMDevice* pDev = NULL;
+    hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(pEnum, eRender, eConsole, &pDev);
+    if (SUCCEEDED(hr) && pDev) {
+        IAudioEndpointVolume* pVol = NULL;
+        hr = IMMDevice_Activate(pDev, &MY_IID_IAudioEndpointVolume, CLSCTX_ALL, NULL, (void**)&pVol);
+        if (SUCCEEDED(hr) && pVol) {
+            IAudioEndpointVolume_GetMasterVolumeLevelScalar(pVol, &volume);
+            IAudioEndpointVolume_Release(pVol);
+        }
+        IMMDevice_Release(pDev);
+    }
+    
+    IMMDeviceEnumerator_Release(pEnum);
+    CoUninitialize();
+    return volume;
+}
+
+/* Set volume of default playback device */
+static void setDefaultPlaybackVolume(float volume) {
+    if (volume < 0.0f || volume > 1.0f) return;
+    
+    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) return;
+    
+    IMMDeviceEnumerator* pEnum = NULL;
+    hr = CoCreateInstance(&MY_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
+                          &MY_IID_IMMDeviceEnumerator, (void**)&pEnum);
+    if (FAILED(hr)) {
+        CoUninitialize();
+        return;
+    }
+    
+    IMMDevice* pDev = NULL;
+    hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(pEnum, eRender, eConsole, &pDev);
+    if (SUCCEEDED(hr) && pDev) {
+        IAudioEndpointVolume* pVol = NULL;
+        hr = IMMDevice_Activate(pDev, &MY_IID_IAudioEndpointVolume, CLSCTX_ALL, NULL, (void**)&pVol);
+        if (SUCCEEDED(hr) && pVol) {
+            IAudioEndpointVolume_SetMasterVolumeLevelScalar(pVol, volume, NULL);
+            IAudioEndpointVolume_Release(pVol);
+        }
+        IMMDevice_Release(pDev);
+    }
+    
+    IMMDeviceEnumerator_Release(pEnum);
+    CoUninitialize();
+}
+
+/* Save current volume, set to safe level */
+static void saveAndLowerVolume(void) {
+    g_savedPlaybackVolume = getDefaultPlaybackVolume();
+    if (g_savedPlaybackVolume >= 0) {
+        logMsg("[i] Saved volume: %.0f%%, lowering to 20%% for safety\n", g_savedPlaybackVolume * 100);
+        setDefaultPlaybackVolume(0.20f);
+    }
+}
+
+/* Restore previously saved volume */
+static void restoreVolume(void) {
+    if (g_savedPlaybackVolume >= 0) {
+        logMsg("[i] Restoring volume to %.0f%%\n", g_savedPlaybackVolume * 100);
+        setDefaultPlaybackVolume(g_savedPlaybackVolume);
+        g_savedPlaybackVolume = -1.0f;
+    }
+}
+
 static void setAudioDefaults(void) {
     logMsg("[i] Setting audio defaults and volumes...\n");
     
@@ -1647,6 +1743,93 @@ static void elevateAndRestart(const char* exePath) {
     }
 }
 
+/* ========== System Tray Functions ========== */
+static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_TRAYICON) {
+        if (lParam == WM_LBUTTONUP) {
+            /* Left click - open config GUI */
+            g_trayAction = 1;
+        } else if (lParam == WM_RBUTTONUP) {
+            /* Right click - show context menu */
+            POINT pt;
+            GetCursorPos(&pt);
+            
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, ID_TRAY_OPEN, L"Open Settings");
+            AppendMenuW(hMenu, MF_STRING, ID_TRAY_RUN, L"Run Reset");
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
+            
+            /* Required for menu to work properly */
+            SetForegroundWindow(hwnd);
+            
+            UINT cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, 
+                                       pt.x, pt.y, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+            
+            if (cmd == ID_TRAY_OPEN) {
+                g_trayAction = 1;  /* Open config */
+            } else if (cmd == ID_TRAY_RUN) {
+                g_trayAction = 2;  /* Run reset */
+            } else if (cmd == ID_TRAY_EXIT) {
+                g_trayAction = 3;  /* Exit */
+            }
+        }
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+static void initTrayIcon(void) {
+    /* Create hidden window for tray messages */
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = TrayWndProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = L"ElgatoResetTray";
+    RegisterClassW(&wc);
+    
+    g_trayHwnd = CreateWindowW(L"ElgatoResetTray", L"", 0, 0, 0, 0, 0, 
+                                HWND_MESSAGE, NULL, wc.hInstance, NULL);
+    
+    /* Set up notification icon */
+    g_nid.cbSize = sizeof(NOTIFYICONDATAW);
+    g_nid.hWnd = g_trayHwnd;
+    g_nid.uID = ID_TRAY_ICON;
+    g_nid.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
+    g_nid.uCallbackMessage = WM_TRAYICON;
+    g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wcscpy(g_nid.szTip, L"Elgato Audio Reset - Starting...");
+    
+    Shell_NotifyIconW(NIM_ADD, &g_nid);
+}
+
+static void updateTrayStatus(const wchar_t* status) {
+    g_trayStatus = status;
+    swprintf(g_nid.szTip, 64, L"Elgato Reset - %s", status);
+    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
+}
+
+static void removeTrayIcon(void) {
+    Shell_NotifyIconW(NIM_DELETE, &g_nid);
+    if (g_trayHwnd) {
+        DestroyWindow(g_trayHwnd);
+        g_trayHwnd = NULL;
+    }
+}
+
+/* Sleep while pumping messages (for tray icon responsiveness) */
+static void sleepWithMessages(DWORD ms) {
+    DWORD start = GetTickCount();
+    while (GetTickCount() - start < ms) {
+        MSG msg;
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        Sleep(50);  /* Small sleep between message checks */
+    }
+}
+
 /* ========== Main ========== */
 int main(int argc, char* argv[]) {
     char exePath[MAX_PATH];
@@ -1668,6 +1851,9 @@ int main(int argc, char* argv[]) {
         if (!g_shouldRun) {
             return 0;
         }
+    } else {
+        /* Running in background - show system tray icon */
+        initTrayIcon();
     }
     
     /* Initialize log */
@@ -1681,13 +1867,19 @@ int main(int argc, char* argv[]) {
     /* Discover paths */
     discoverPaths();
     
+    /* Save current volume and lower to safe level before reset */
+    saveAndLowerVolume();
+    
     /* Step 1: Kill Elgato processes */
+    if (g_trayHwnd) updateTrayStatus(L"Stopping processes...");
     killElgatoProcesses();
     
     /* Step 2: Restart audio services */
+    if (g_trayHwnd) updateTrayStatus(L"Restarting audio...");
     restartAudioServices();
     
     /* Step 3: Launch WaveLink */
+    if (g_trayHwnd) updateTrayStatus(L"Starting WaveLink...");
     if (g_waveLinkSEPath[0] && GetFileAttributesA(g_waveLinkSEPath) != INVALID_FILE_ATTRIBUTES) {
         launchApp(g_waveLinkSEPath, "WaveLinkSE.exe", "WaveLinkSE");
     }
@@ -1696,19 +1888,21 @@ int main(int argc, char* argv[]) {
     }
     
     /* Step 4: Wait for Elgato devices */
+    if (g_trayHwnd) updateTrayStatus(L"Waiting for devices...");
     waitForElgatoDevices();
     
     /* Step 5: Launch StreamDeck */
     if (g_streamDeckPath[0]) {
+        if (g_trayHwnd) updateTrayStatus(L"Starting StreamDeck...");
         launchApp(g_streamDeckPath, "StreamDeck.exe", "StreamDeck");
         logMsg("[i] Waiting for StreamDeck to fully initialize...\n");
         
         /* Wait for StreamDeck window to appear (up to 30 seconds) */
         for (int i = 0; i < 30; i++) {
-            Sleep(1000);
+            if (g_trayHwnd) sleepWithMessages(1000); else Sleep(1000);
             HWND hwnd = FindWindowA(NULL, "Stream Deck");
             if (hwnd) {
-                Sleep(2000); /* Extra time for full initialization */
+                if (g_trayHwnd) sleepWithMessages(2000); else Sleep(2000);
                 break;
             }
         }
@@ -1718,8 +1912,12 @@ int main(int argc, char* argv[]) {
     }
     
     /* Step 6: Set audio defaults */
-    Sleep(2000); /* Let everything settle */
+    if (g_trayHwnd) updateTrayStatus(L"Setting audio defaults...");
+    if (g_trayHwnd) sleepWithMessages(2000); else Sleep(2000);
     setAudioDefaults();
+    
+    /* Restore original volume */
+    restoreVolume();
     
     /* Done */
     logMsg("\n[+] Reset complete!\n");
@@ -1727,10 +1925,26 @@ int main(int argc, char* argv[]) {
     
     if (g_logFile) fclose(g_logFile);
     
+    /* Remove tray icon if shown */
+    if (g_trayHwnd) {
+        updateTrayStatus(L"Complete!");
+        sleepWithMessages(500); /* Brief moment to show "Complete!" */
+        removeTrayIcon();
+    }
+    
     /* Show completion notification if enabled */
     if (g_showNotification) {
         MessageBoxA(NULL, "Elgato Audio Reset Complete", "Elgato Audio Reset", MB_OK | MB_ICONINFORMATION);
     }
+    
+    /* Handle tray action if user clicked during reset */
+    if (g_trayAction == 1) {
+        /* Open config */
+        showConfigGUI();
+    } else if (g_trayAction == 3) {
+        /* Exit was requested - already exiting */
+    }
+    /* g_trayAction == 2 (Run) doesn't need handling - reset already ran */
     
     return 0;
 }
