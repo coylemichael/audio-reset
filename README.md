@@ -32,7 +32,7 @@ Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 5. Click **Save** or **Fix Audio** to save and execute immediately
 6. Point your macro or hotkey to `%LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat`
 
-## Quick Start
+## Advanced 
 <details>
 <summary>Manual setup without scheduled task - Recommended for Advanced users. </summary>
 
