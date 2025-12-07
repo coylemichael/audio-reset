@@ -15,10 +15,8 @@ Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 
 ## Quick Start
 
-The recommended method - creates a scheduled task with admin privileges so you don't get a UAC prompt every time. The `.bat` file simply triggers the scheduled task.
-
 > [!IMPORTANT]
-> The scheduled task requires admin rights because the tool restarts Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and terminates WaveLink/StreamDeck processes.
+> Admin rights are required to restart Windows audio services (`audiosrv`, `AudioEndpointBuilder`) and terminate WaveLink/StreamDeck processes. Because of this, the installer creates a scheduled task so you can trigger the reset from the `.bat` file created during install without a UAC prompt.
 
 1. Open PowerShell as **Administrator**
 2. Run:
