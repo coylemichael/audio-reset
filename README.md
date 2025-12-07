@@ -32,12 +32,12 @@ Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 5. Click **Save** or **Fix Audio** to save and execute immediately
 6. Point your macro or hotkey to `%LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat`
 
----
-
+## Quick Start
 <details>
-<summary><b>Advanced Method</b> - Manual setup without scheduled task</summary>
+<summary>Manual setup without scheduled task - Recommended for Advanced users. </summary>
 
-This method doesn't require admin during setup, but you'll see a UAC prompt every time you run the tool.
+
+This method doesn't require admin during setup, as a consequence you'll see a UAC prompt every time you run the tool.
 
 ### Option A: Download the Release
 
@@ -45,11 +45,15 @@ This method doesn't require admin during setup, but you'll see a UAC prompt ever
 
 ### Option B: Clone and Build
 
-1. Clone the repo: `git clone https://github.com/coylemichael/audio-reset.git`
-2. Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
-3. Build:
+1. Clone the repo:
    ```powershell
-   cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && cd /d "C:\path\to\audio-reset\c" && cl /O2 elgato_audio_reset.c'
+   git clone https://github.com/coylemichael/audio-reset.git
+   ```
+2. Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
+3. Build from PowerShell:
+   ```powershell
+   cd audio-reset\c
+   cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && cl /O2 elgato_audio_reset.c'
    ```
 
 ### Then (for both options)
@@ -61,8 +65,6 @@ This method doesn't require admin during setup, but you'll see a UAC prompt ever
 5. Point your Stream Deck or hotkey to `elgato_audio_reset.exe` in your install folder (UAC prompt will appear each time)
 
 </details>
-
----
 
 ## Configuration
 
