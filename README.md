@@ -25,12 +25,16 @@ Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 & ([scriptblock]::Create((irm "https://elgato.carnmorcyber.com")))
 ```
 
+![Installer GUI](static/ps.png)
+
 3. Select your preferred audio devices. Optionally set a custom install location (defaults to `%LOCALAPPDATA%\ElgatoReset\`)
 4. Configure options:
    - **Run in background** - Skips the GUI on future runs and shows progress in the system tray
    - **Show completion notification** - Displays a popup when complete
 5. Click **Save** or **Fix Audio** to save and execute immediately
 6. Point your macro or hotkey to `%LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat`
+
+![Installed files](static/folder_structure.png)
 
 ## Advanced 
 <details>
