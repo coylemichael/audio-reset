@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [v0.9.6] - 2025-12-11
 
+SHA256: `26F8697B6B6770116D27CA7C6688A1E9B240168A77F17AA6414922E00B0B529F`
+
 ### Changed
 - Renamed "Fix Audio" button to "Reset Audio" for clarity
 - Added clarification in README that tool resets to user-defined baseline
