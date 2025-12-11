@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.9.6] - 2025-12-11
+
+### Changed
+- Renamed "Fix Audio" button to "Reset Audio" for clarity
+- Added clarification in README that tool resets to user-defined baseline
+- System tray with right-click context menu (Open Settings / Run Reset / Exit)
+- Left-click tray icon opens config GUI after reset
+- Safe volume handling - saves current volume, lowers to 20% during reset, restores after
+
 ## [v0.9.3] - 2025-12-06
 
 SHA256: `83BC559CB7E28C9AC1778805066902883017BDC3D5235ECC5F4C82E4630A9699`
