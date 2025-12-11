@@ -606,7 +606,7 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             SendMessage(hButtonSave, WM_SETFONT, (WPARAM)hFontBold, TRUE);
             
             /* Run button - disabled until config exists */
-            hButtonRun = CreateWindowW(L"BUTTON", L"Fix Audio",
+            hButtonRun = CreateWindowW(L"BUTTON", L"Reset Audio",
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | (g_configExists ? 0 : WS_DISABLED), 
                 270, yPos, 120, 35,
                 hwnd, (HMENU)ID_BUTTON_RUN, NULL, NULL);
@@ -744,7 +744,7 @@ static LRESULT CALLBACK ConfigDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 
                 char msg[1024];
                 snprintf(msg, sizeof(msg), 
-                    "Configuration saved! Run via the \"Fix Audio\" button.\n\n"
+                    "Configuration saved! Run via the \"Reset Audio\" button.\n\n"
                     "Executable saved:\n%s\n\n"
                     "You can assign the executable to a hotkey or macro button. "
                     "If you set the config to run in the background with no notification, "
@@ -1847,7 +1847,7 @@ int main(int argc, char* argv[]) {
         /* First run, config deleted, or user wants to see GUI */
         showConfigGUI();
         
-        /* If user didn't click Fix Audio, exit without running reset */
+        /* If user didn't click Reset Audio, exit without running reset */
         if (!g_shouldRun) {
             return 0;
         }

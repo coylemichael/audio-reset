@@ -1,6 +1,6 @@
 # Elgato Audio Reset Tool
 
-Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
+Resets Elgato Wave Link audio routing when it gets stuck or misbehaves. This tool restores your audio configuration to a baseline you define during setup - it won't magically fix misconfigured audio, but it will get you back to a known working state.
 
 ## What It Does
 
@@ -33,7 +33,7 @@ Resets Elgato Wave Link audio routing when it gets stuck or misbehaves.
 4. Configure options:
    - **Run in background** - Skips the GUI on future runs and shows progress in the system tray
    - **Show completion notification** - Displays a popup when complete
-5. Click **Save** or **Fix Audio** to save and execute immediately
+5. Click **Save** or **Reset Audio** to save and execute immediately
 6. Point your macro or hotkey to `%LOCALAPPDATA%\ElgatoReset\elgato_audio_reset.bat`
 
 <p align="center">
@@ -69,7 +69,7 @@ This method doesn't require admin during setup, as a consequence you'll see a UA
 1. Run `elgato_audio_reset.exe` - the configuration window will appear
 2. Select your preferred audio devices and optionally set a custom install folder
 3. Configure **Run in background** and **Show notification** options
-4. Click **Save** or **Fix Audio** to save and execute immediately
+4. Click **Save** or **Reset Audio** to save and execute immediately
 5. Point your Stream Deck or hotkey to `elgato_audio_reset.exe` in your install folder (UAC prompt will appear each time)
 
 </details>
